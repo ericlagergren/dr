@@ -162,7 +162,7 @@ func (n *nist) Seal(key MessageKey, plaintext, additionalData []byte) []byte {
 	}
 
 	key, nonce := n.derive(key)
-	defer subtleZero(key)
+	defer secureZero(key)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -182,7 +182,7 @@ func (n *nist) Open(key MessageKey, ciphertext, additionalData []byte) ([]byte, 
 		return nil, fmt.Errorf("Open: invalid message key size: %d", len(key))
 	}
 	key, nonce := n.derive(key)
-	defer subtleZero(key)
+	defer secureZero(key)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {

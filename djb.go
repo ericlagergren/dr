@@ -131,7 +131,7 @@ func (d djb) Seal(key MessageKey, plaintext, additionalData []byte) []byte {
 	}
 
 	key, nonce := d.derive(key)
-	defer subtleZero(key)
+	defer secureZero(key)
 
 	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {
@@ -145,7 +145,7 @@ func (d djb) Open(key MessageKey, ciphertext, additionalData []byte) ([]byte, er
 		return nil, fmt.Errorf("Open: invalid message key size: %d", len(key))
 	}
 	key, nonce := d.derive(key)
-	defer subtleZero(key)
+	defer secureZero(key)
 
 	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {
