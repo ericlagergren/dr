@@ -1,5 +1,7 @@
 # dr
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/ericlagergren/dr.svg)](https://pkg.go.dev/github.com/ericlagergren/dr)
+
 The [Double Ratchet](https://signal.org/docs/specifications/doubleratchet/) algorithm.
 
 ## Security
