@@ -3,6 +3,6 @@ module github.com/ericlagergren/dr
 go 1.16
 
 require (
-	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2
-	golang.org/x/exp v0.0.0-20210405174845-4513512abef3
+	github.com/ericlagergren/saferand v0.0.0-20220206064634-960a4dd2bc5c
+	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
 )
