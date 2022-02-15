@@ -285,8 +285,8 @@ var ErrNotFound = errors.New("dr: key not found")
 
 // Store saves session state.
 type Store interface {
-	// Save saves the state under ID.
-	Save(id []byte, s *State) error
+	// Save saves the state.
+	Save(s *State) error
 	// StoreKey stores a skipped message's key under the (Nr,
 	// PublicKey) tuple.
 	//
@@ -316,7 +316,7 @@ func (memory) key(Nr int, pub PublicKey) string {
 	return fmt.Sprintf("%d:%x", Nr, pub)
 }
 
-func (m *memory) Save(_ []byte, _ *State) error {
+func (m *memory) Save(_ *State) error {
 	return nil
 }
 
@@ -349,8 +349,6 @@ func (m *memory) DeleteKey(Nr int, pub PublicKey) error {
 type Session struct {
 	// r is the underlying Ratchet.
 	r Ratchet
-	// id is the session ID.
-	id []byte
 	// state is the current session state.
 	state *State
 	// store is the underlying session stte store.
@@ -363,15 +361,6 @@ const defaultMaxSkip = 1000
 
 // Option configures a Session.
 type Option func(*Session)
-
-// WithID configures the session's ID.
-//
-// By default, sessions use a random 16-byte ID.
-func WithID(id []byte) Option {
-	return func(s *Session) {
-		s.id = id
-	}
-}
 
 // WithStore configures some backing store for saving state and
 // skipped messages.
@@ -419,12 +408,6 @@ func NewSend(r Ratchet, SK []byte, peer PublicKey, opts ...Option) (*Session, er
 	if s.store == nil {
 		s.store = &memory{maxSkip: defaultMaxSkip}
 	}
-	if s.id == nil {
-		s.id = make([]byte, 16)
-		if _, err := rand.Read(s.id); err != nil {
-			panic(err)
-		}
-	}
 	priv, err := r.Generate(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("NewSend: Generate failed: %w", err)
@@ -457,12 +440,6 @@ func NewRecv(r Ratchet, SK []byte, priv PrivateKey, opts ...Option) (*Session, e
 	}
 	if s.store == nil {
 		s.store = &memory{maxSkip: defaultMaxSkip}
-	}
-	if s.id == nil {
-		s.id = make([]byte, 16)
-		if _, err := rand.Read(s.id); err != nil {
-			panic(err)
-		}
 	}
 	s.state = &State{
 		DHs: priv,
@@ -543,7 +520,7 @@ func (s *Session) Open(msg Message, additionalData []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.Save(s.id, tmp); err != nil {
+	if err := s.store.Save(tmp); err != nil {
 		wipe(plaintext)
 		return nil, err
 	}
