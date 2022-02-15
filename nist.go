@@ -14,8 +14,8 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
-// nist implements Ratchet using NIST curves, 256-bit AES-GCM,
-// HKDF with SHA-256, and HMAC-SHA-256.
+// nist implements Ratchet using a NIST curve, 256-bit AES-GCM,
+// HKDF and HMAC with the provided hash function.
 type nist struct {
 	// curve is the underlying curve.
 	curve elliptic.Curve
@@ -43,72 +43,72 @@ func NIST(curve elliptic.Curve, hash func() hash.Hash, namespace string) Ratchet
 	}
 }
 
-// privLen returns the size in bytes of a private key on the
-// underlying curve.
-func (n *nist) privLen() int {
+// byteLen returns the size of the underlying curve in bytes.
+func (n *nist) byteLen() int {
 	return (n.curve.Params().BitSize + 7) / 8
 }
 
-// pubLen returns the size in bytes of a public key on the
-// underlying curve.
+// privKeyLen returns the size in bytes of a PrivateKey.
+func (n *nist) privKeyLen() int {
+	// PrivateKey is priv || pub.
+	return n.byteLen() + n.pubKeyLen()
+}
+
+// pubKeyLen returns the size in bytes of a PublicKey.
 //
-// The public key is in ANSI X9.62 uncompressed form.
-func (n *nist) pubLen() int {
-	return 1 + 2*n.privLen()
+// The public key is in ANSI X9.62 compressed form.
+func (n *nist) pubKeyLen() int {
+	return 1 + n.byteLen()
 }
 
-// pairLen returns the size in bytes of a key pair on the
-// underlying curve.
-func (n *nist) keyPairLen() int {
-	return n.privLen() + n.pubLen()
-}
-
-// secretLen returns the size in bytes of a Diffie-Hellman value
-// on the underlying curve.
-func (n *nist) secretLen() int {
-	return n.privLen()
-}
-
-func (n *nist) Generate(r io.Reader) (KeyPair, error) {
-	priv, x, y, err := elliptic.GenerateKey(n.curve, r)
+func (n *nist) Generate(r io.Reader) (PrivateKey, error) {
+	d, x, y, err := elliptic.GenerateKey(n.curve, r)
 	if err != nil {
 		return nil, err
 	}
-	pub := elliptic.Marshal(n.curve, x, y)
-	key := make([]byte, n.keyPairLen())
-	copy(key[0:n.privLen()], priv)
-	copy(key[n.privLen():], pub)
-	return key, nil
+	pub := elliptic.MarshalCompressed(n.curve, x, y)
+	priv := make(PrivateKey, n.privKeyLen())
+	m := copy(priv, d)
+	m += copy(priv[m:], pub)
+	if m != len(priv) {
+		panic("dr: key size mismatch")
+	}
+	return priv, nil
 }
 
-func (n *nist) Public(priv KeyPair) PublicKey {
-	if len(priv) != n.keyPairLen() {
-		panic("DH: invalid key pair size: " + strconv.Itoa(len(priv)))
+func (n *nist) Public(priv PrivateKey) PublicKey {
+	if len(priv) != n.privKeyLen() {
+		panic("dr: invalid private key size: " + strconv.Itoa(len(priv)))
 	}
-	return append(PublicKey(nil), priv[n.privLen():]...)
+	pub := make(PublicKey, n.pubKeyLen())
+	copy(pub, priv[n.byteLen():])
+	return pub
 }
 
-func (n *nist) DH(priv KeyPair, pub PublicKey) ([]byte, error) {
-	if len(priv) != n.keyPairLen() {
-		panic("DH: invalid key pair size: " + strconv.Itoa(len(priv)))
+func (n *nist) DH(priv PrivateKey, pub PublicKey) ([]byte, error) {
+	if len(priv) != n.privKeyLen() {
+		panic("dr: invalid private key size: " + strconv.Itoa(len(priv)))
 	}
-	if len(pub) != n.pubLen() {
-		panic("DH: invalid public key size: " + strconv.Itoa(len(pub)))
+	if len(pub) != n.pubKeyLen() {
+		panic("dr: invalid public key size: " + strconv.Itoa(len(pub)))
 	}
 
-	x, y := elliptic.Unmarshal(n.curve, pub)
+	x, y := elliptic.UnmarshalCompressed(n.curve, pub)
 	if x == nil {
-		return nil, errors.New("invalid public key")
+		return nil, errors.New("dr: invalid public key")
 	}
-	k := priv[:n.privLen()]
+	k := priv[:n.byteLen()]
 
 	secret, _ := n.curve.ScalarMult(x, y, k)
-	dh := make([]byte, n.secretLen())
+	dh := make([]byte, n.byteLen())
 	secret.FillBytes(dh)
 	return dh, nil
 }
 
 func (n *nist) KDFrk(rk RootKey, dh []byte) (RootKey, ChainKey) {
+	if len(rk) != 32 {
+		panic("dr: invalid RootKey size: " + strconv.Itoa(len(rk)))
+	}
 	buf := make([]byte, 2*32)
 	// The Double Ratchet spec says:
 	//
@@ -124,10 +124,14 @@ func (n *nist) KDFrk(rk RootKey, dh []byte) (RootKey, ChainKey) {
 	if err != nil {
 		panic(err)
 	}
-	return buf[0:32:32], buf[32 : 2*32 : 2*32]
+	return buf[:32:32], buf[32 : 2*32 : 2*32]
 }
 
 func (n *nist) KDFck(ck ChainKey) (ChainKey, MessageKey) {
+	if len(ck) != 32 {
+		panic("dr: invalid ChainKey size: " + strconv.Itoa(len(ck)))
+	}
+
 	h := hmac.New(n.hash, ck)
 
 	const (
@@ -158,48 +162,44 @@ func (n *nist) derive(ikm []byte) (key, nonce []byte) {
 
 func (n *nist) Seal(key MessageKey, plaintext, additionalData []byte) []byte {
 	if len(key) != 32 {
-		panic("Seal: invalid message key size: " + strconv.Itoa(len(key)))
+		panic("dr: invalid message key size: " + strconv.Itoa(len(key)))
 	}
 
 	key, nonce := n.derive(key)
-	defer secureZero(key)
+	defer wipe(key)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		panic(err)
 	}
-
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
 		panic(err)
 	}
-
 	return aead.Seal(nil, nonce, plaintext, additionalData)
 }
 
 func (n *nist) Open(key MessageKey, ciphertext, additionalData []byte) ([]byte, error) {
 	if len(key) != 32 {
-		return nil, fmt.Errorf("Open: invalid message key size: %d", len(key))
+		return nil, fmt.Errorf("dr: invalid message key size: %d", len(key))
 	}
 	key, nonce := n.derive(key)
-	defer secureZero(key)
+	defer wipe(key)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, err
 	}
-
 	return aead.Open(nil, nonce, ciphertext, additionalData)
 }
 
-func (n *nist) Header(priv KeyPair, prevChainLength, messageNum int) Header {
-	if len(priv) != n.keyPairLen() {
-		panic("Header: invalid key pair size: " + strconv.Itoa(len(priv)))
+func (n *nist) Header(priv PrivateKey, prevChainLength, messageNum int) Header {
+	if len(priv) != n.privKeyLen() {
+		panic("dr: invalid key pair size: " + strconv.Itoa(len(priv)))
 	}
 	return Header{
 		PublicKey: n.Public(priv),
