@@ -457,18 +457,22 @@ type Message struct {
 
 // Seal encrypts and authenticates plaintext, authenticates
 // additionalData, and returns the resulting message.
-func (s *Session) Seal(plaintext, additionalData []byte) Message {
+func (s *Session) Seal(plaintext, additionalData []byte) (Message, error) {
 	state := s.state
 
-	var mk MessageKey
-	state.CKs, mk = s.r.KDFck(state.CKs)
+	cks, mk := s.r.KDFck(state.CKs)
 	h := s.r.Header(state.DHs, state.PN, state.Ns)
-	state.Ns++
 	additionalData = s.r.Concat(additionalData, h)
-	return Message{
+	msg := Message{
 		Header:     h,
 		Ciphertext: s.r.Seal(mk, plaintext, additionalData),
 	}
+	if err := s.store.Save(s.state); err != nil {
+		return Message{}, err
+	}
+	state.CKs = cks
+	state.Ns++
+	return msg, nil
 }
 
 // Open decrypts and authenticates ciphertext, authenticates
@@ -476,8 +480,8 @@ func (s *Session) Seal(plaintext, additionalData []byte) Message {
 func (s *Session) Open(msg Message, additionalData []byte) ([]byte, error) {
 	h := msg.Header
 
-	switch mk, err := s.store.LoadKey(h.N, h.PublicKey); err {
-	case nil:
+	switch mk, err := s.store.LoadKey(h.N, h.PublicKey); {
+	case err == nil:
 		plaintext, err := s.r.Open(mk,
 			msg.Ciphertext, s.r.Concat(additionalData, h))
 		if err != nil {
@@ -489,7 +493,7 @@ func (s *Session) Open(msg Message, additionalData []byte) ([]byte, error) {
 			return nil, err
 		}
 		return plaintext, nil
-	case ErrNotFound:
+	case errors.Is(err, ErrNotFound):
 		// OK
 	default:
 		return nil, err

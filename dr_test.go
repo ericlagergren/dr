@@ -54,7 +54,10 @@ func TestAliceBob(t *testing.T) {
 		for i := 0; i < N; i++ {
 			rand.Read(plaintext)
 			rand.Read(ad)
-			msg := send.Seal(plaintext, ad)
+			msg, err := send.Seal(plaintext, ad)
+			if err != nil {
+				t.Fatalf("#%d: %v", i, err)
+			}
 			got, err := recv.Open(msg, ad)
 			if err != nil {
 				t.Fatalf("#%d: %v", i, err)
@@ -96,12 +99,17 @@ func TestOutOfOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		N := 500
+		const (
+			N = 500
+		)
 		msgs := make([]Message, N)
 		ad := make([]byte, 100)
 		plaintext := make([]byte, 100)
 		for i := range msgs {
-			msgs[i] = alice.Seal(plaintext, ad)
+			msgs[i], err = alice.Seal(plaintext, ad)
+			if err != nil {
+				t.Fatalf("#%d: %v", i, err)
+			}
 		}
 		mrand.Shuffle(len(msgs), func(i, j int) {
 			msgs[i], msgs[j] = msgs[j], msgs[i]
@@ -161,7 +169,10 @@ func TestResume(t *testing.T) {
 			if _, err := rand.Read(ad); err != nil {
 				t.Fatal(err)
 			}
-			msg := send.Seal(plaintext, ad)
+			msg, err := send.Seal(plaintext, ad)
+			if err != nil {
+				t.Fatalf("#%d: %v", i, err)
+			}
 			got, err := recv.Open(msg, ad)
 			if err != nil {
 				t.Fatalf("#%d: %v", i, err)
